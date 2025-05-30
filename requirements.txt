@@ -1,3 +1,4 @@
-streamlit
+treamlit
 transformers
 torch
+PyMuPDF
