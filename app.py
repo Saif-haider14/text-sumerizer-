@@ -1,29 +1,51 @@
-# app.py
-import os
-os.environ["STREAMLIT_PATHS_NO_WATCH"] = "1"
-
-import streamlit as st
-import torch
-# rest of your imports and app logic
-
-
 import streamlit as st
 from transformers import pipeline
+import fitz  # PyMuPDF
 
-# Load pretrained summarizer
-summarizer = pipeline("summarization", model="sshleifer/distilbart-cnn-12-6")
+# Load the summarizer (cached for performance)
+@st.cache_resource
+def load_model():
+    return pipeline("summarization", model="facebook/bart-large-cnn")
 
-st.title("Text Summarizer using Pretrained AI Model")
-st.markdown("This app summarizes long text into short, meaningful summaries.")
+summarizer = load_model()
 
-# User input
-text_input = st.text_area("Enter text to summarize", height=300)
+st.title("📄 AI PDF/Text Summarizer")
+st.write("Upload a PDF or paste text to generate a summary.")
 
+# PDF or text input
+pdf_file = st.file_uploader("Upload a PDF", type=["pdf"])
+text_input = st.text_area("Or paste text here", height=300)
+
+def extract_text_from_pdf(pdf_file):
+    doc = fitz.open(stream=pdf_file.read(), filetype="pdf")
+    text = ""
+    for page in doc:
+        text += page.get_text()
+    return text
+
+# Summarize
 if st.button("Summarize"):
-    if text_input.strip() != "":
-        with st.spinner("Summarizing..."):
-            summary = summarizer(text_input, max_length=120, min_length=30, do_sample=False)
-            st.subheader("Summary")
-            st.write(summary[0]['summary_text'])
+    if pdf_file:
+        with st.spinner("Extracting and summarizing PDF..."):
+            raw_text = extract_text_from_pdf(pdf_file)
+    elif text_input.strip():
+        raw_text = text_input
     else:
-        st.warning("Please enter some text to summarize.")
+        st.warning("Please upload a PDF or enter some text.")
+        st.stop()
+
+    # Split if too long
+    if len(raw_text) > 1000:
+        import textwrap
+        chunks = textwrap.wrap(raw_text, 1000)
+        summary = []
+        for chunk in chunks:
+            out = summarizer(chunk, max_length=60, min_length=20, do_sample=False)
+            summary.append(out[0]['summary_text'])
+        final_summary = " ".join(summary)
+    else:
+        out = summarizer(raw_text, max_length=60, min_length=20, do_sample=False)
+        final_summary = out[0]['summary_text']
+
+    st.subheader("Summary")
+    st.success(final_summary)
